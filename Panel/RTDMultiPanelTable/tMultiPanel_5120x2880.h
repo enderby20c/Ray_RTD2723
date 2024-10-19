@@ -1,0 +1,63 @@
+// 5120x2880
+{
+#if(_PANEL_STYLE == _PANEL_DPTX)
+    _PANEL_DPTX_LINK_HBR2, // _PANEL_DPTX_LINK_RATE
+    _PANEL_DPTX_LANE_NUMBER_8, // _PANEL_DPTX_LANE_NUMBER
+    _PANEL_DPTX_VENDOR_SPECIFIC_004F1H, // _PANEL_DPTX_VENDOR_SPECIFIC_TYPE
+    _DPTX_PANEL_2_SECTION, // _PANEL_DPTX_PANEL_SECTION
+#endif
+
+    _PANEL_PIXEL_LCD, // _PANEL_PIXEL_TYPE
+
+    5200,        // _LAST_LINE_MAX
+    5000,        // _LAST_LINE_MIN
+    _PANEL_LGD, // _PANEL_MANUFACTURER
+    _PANEL_DISP_30_BIT,
+
+    600,        // _PANEL_TYP_FRAME_RATE
+    610,        // _PANEL_MAX_FRAME_RATE
+    590,        // _PANEL_MIN_FRAME_RATE
+
+#if(_DRR_SUPPORT == _ON)
+    600,        // _PANEL_DP_FREESYNC_MAX_FRAME_RATE
+    400,        // _PANEL_DP_FREESYNC_MIN_FRAME_RATE
+    600,        // _PANEL_HDMI_FREESYNC_MAX_FRAME_RATE
+    400,        // _PANEL_HDMI_FREESYNC_MIN_FRAME_RATE
+    600,        // _PANEL_HDMI21_VRR_MAX_FRAME_RATE
+    400,        // _PANEL_HDMI21_VRR_MIN_FRAME_RATE
+#endif
+
+    80,         // _PANEL_DH_START
+    5120,       // _PANEL_DH_WIDTH
+
+    5400,       // _PANEL_DH_TOTAL
+    5448,       // _PANEL_DH_TOTAL_MAX
+    5200,       // _PANEL_DH_TOTAL_MIN
+
+    6,          // _PANEL_DV_START
+    2880,       // _PANEL_DV_HEIGHT
+
+    2962,       // _PANEL_DV_TOTAL
+#if(_DRR_SUPPORT == _ON)
+    8000,       // _PANEL_DV_TOTAL_MAX
+#else
+    3002,       // _PANEL_DV_TOTAL_MAX
+#endif
+    2922,       // _PANEL_DV_TOTAL_MIN
+
+    8,          // _PANEL_DH_SYNC_WIDTH
+    2,          // _PANEL_DV_SYNC_HEIGHT
+
+    959,        // _PANEL_PIXEL_CLOCK
+    998,        // _PANEL_PIXEL_CLOCK_MAX
+    878,        // _PANEL_PIXEL_CLOCK_MIN
+
+    10,        // _PANEL_POWER_ON_T1
+    50,         // _PANEL_POWER_ON_T2
+    250,        // _PANEL_POWER_ON_T3
+
+    50,         // _PANEL_POWER_OFF_T4
+    10,         // _PANEL_POWER_OFF_T5
+    300,        // _PANEL_POWER_OFF_T6
+},
+

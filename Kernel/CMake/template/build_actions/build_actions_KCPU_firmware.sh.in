@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Usage:
+#   - event functions for building KCPU firmware
+
+function pre_build() {
+    # clean elf
+    rm -f "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf"
+
+    # fix dependency file format for ninja
+    ./helper.sh fix_dependency
+}
+
+function pre_link() {
+    # pre-process .ld template
+    ./cpp_cmd.sh ld_template.ld > ld_template.ld.i
+
+    "@WRAPPER_BIN@" ld_gen \
+        --input-path ld_template.ld.i \
+        --output-path "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.ld"
+
+    # generate wrap command
+    grep '00000000 g *F.* __wrap_[A-Za-z_][A-Za-z0-9_]*$' dump/actor_wrap.c.obj.dump | \
+        grep -o "__wrap_[^ ]*$" | \
+        sed "s/__wrap_/--wrap=/" \
+        > "actor_wrap_cmd.ld"
+}
+
+function post_build() {
+    # create binary image
+    @OBJCOPY@ \
+        -O binary \
+        --gap-fill 0xFF \
+        -S \
+        -R .MIPS.abiflags \
+        "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf" \
+        "@OUTPUT_DIR@/COMMON_FILES/firmware_image_KCPU.bin"
+
+    # copy .bin to output
+    cp \
+        "@OUTPUT_DIR@/COMMON_FILES/firmware_image_KCPU.bin" \
+        "@OUTPUT_DIR@/@PROJECT_NAME@.bin"
+
+    # generate location file
+    if [[ @BUILD_SCPU@ == "TRUE" ]]; then
+        "./@SCALER_NAME@_build_actions.sh" generate_kcpu_syms
+    fi
+
+    # dump asm
+    if [[ @CMAKE_BUILD_TYPE@ == "Debug" ]]; then
+        ./helper.sh dump_asm \
+            "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf" \
+            "@PROJECT_NAME@"
+    fi
+
+    # print size info
+    ./helper.sh size_info \
+        "@OUTPUT_DIR@/COMMON_FILES" \
+        "@PROJECT_NAME@"
+}
+
+function clean_all() {
+    cmake --build . --target clean
+
+    # remove dump files
+    rm -f dump/*.{dump,S}
+
+    # remove stack usage files
+    find CMakeFiles | grep "\.su$" | xargs rm -f
+}
+
+
+# actions
+ACTION_ID=${1}
+case ${ACTION_ID} in
+    pre_build)
+        pre_build
+    ;;
+    pre_link)
+        pre_link
+    ;;
+    post_build)
+        post_build
+    ;;
+    clean_all)
+        clean_all
+    ;;
+esac

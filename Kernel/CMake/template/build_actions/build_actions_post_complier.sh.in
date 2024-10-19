@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Usage:
+#   - custom commands run right after compiling
+
+OBJECT_FILE=${1}
+
+OBJECT_NAME=${OBJECT_FILE##*/}
+
+DEP_FILE=${OBJECT_FILE/.obj/.d}
+
+# fix .d file for older ninja on msys2
+if [[ "@CMAKE_HOST_SYSTEM_NAME@" != "Linux" && "@NINJA_VERSION@" == "1.10.0" ]]; then
+
+    DEP_CONTENT=$(<"${DEP_FILE}")
+
+    if [[ ${DEP_CONTENT} =~ \\: ]]; then
+        sed -i 's/\\:/:/g' "${DEP_FILE}"
+    fi
+fi
+
+# detect .incbin and update dependency file
+S_FILE="dump/${OBJECT_NAME/.obj/.S}"
+
+# copy from intermediate .S file
+if [[ "@ASM_SRC_OUTPUT@" == "ON" ]]; then
+    if [[ -f "${OBJECT_FILE}.S" ]]; then
+        mv -f "${OBJECT_FILE}.S" "${S_FILE}"
+    fi
+fi
+
+if [[ -f "${S_FILE}" ]]; then
+
+    S_CONTENT=$(<"${S_FILE}")
+
+    if [[ ${S_CONTENT} =~ \.incbin ]]; then
+        INCBIN_TARGET=$( grep -o "\.incbin *\".*\"" "${S_FILE}" | grep -o "\".*\"" | sed "s/\"//g" )
+
+        if [[ "${INCBIN_TARGET}" != "" ]]; then
+
+            # convert to relative path if necessary
+            if [[ ! -f "${INCBIN_TARGET}" ]]; then
+                INCBIN_TARGET=$( realpath -L --relative-to=. "@PROJECT_DIR@/${INCBIN_TARGET}" )
+            fi
+
+            sed -i "2 i \ ${INCBIN_TARGET} \\\\" "${DEP_FILE}"
+        fi
+    fi
+fi
+
+# dump object info
+DUMP_FILE="dump/${OBJECT_NAME}.dump"
+@OBJDUMP@ @OBJDUMP_FLAGS@ "${OBJECT_FILE}" > "${DUMP_FILE}"
+
+DUMP_CONTENT=$(<"${DUMP_FILE}")
+
+# search for .xram_data sections
+if [[ -f "build_options_rename_xram_data" ]]; then
+    if [[ ${DUMP_CONTENT} =~ \.xram_data ]]; then
+        ./build_actions_data_section_rename.sh "xram" "${OBJECT_FILE}"
+    fi
+fi
+
+# search for .off_region sections
+if [[ -f "build_options_rename_off_region_data" ]]; then
+    if [[ ${DUMP_CONTENT} =~ \.off_region_data ]]; then
+        ./build_actions_data_section_rename.sh "off_region" "${OBJECT_FILE}"
+    fi
+fi
+
+# search for .ddr_data sections
+if [[ -f "build_options_rename_ddr_data" ]]; then
+    if [[ ${DUMP_CONTENT} =~ \.ddr_data ]]; then
+        ./build_actions_data_section_rename.sh "ddr" "${OBJECT_FILE}"
+    fi
+fi
+
+# search for clipping tag if supported
+if [[ -f "build_options_clipping" ]]; then
+    if [[ ${DUMP_CONTENT} =~ \.text\.RTK_DEBUG_CLIP ]]; then
+        ./build_actions_clipping.sh "${OBJECT_FILE}"
+    fi
+fi

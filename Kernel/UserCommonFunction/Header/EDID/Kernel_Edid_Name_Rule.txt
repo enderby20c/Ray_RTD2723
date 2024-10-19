@@ -1,0 +1,49 @@
+Read the link to know the coding rule of Edid naming
+https://wiki.realtek.com/pages/viewpage.action?pageId=203091924
+
+Name struct:
+EDID_Interface_Struct_PreferTiming_Mxxx_HDRxxx_DRRxxx
+
+Interface:
+	"VGA"
+        "DVI"
+        "HDMI"
+        "DP"
+
+Struct:
+	B = Base block
+        C = CTA ext-block       	
+        D1 = DID v1.x ext-block
+        D2 = DID v2.x ext-block
+
+PreferTiming:
+	The first Priority timing at Detail timing range
+        (Detail timing range = DTD/ T1/T7/ T10DB(both CTA/ DID ext-block)
+        (if DRR support, framerate is indicated as A-B, which A is Vfmin, B is Vfmax...see ex2 below)
+
+Mxxx: (M = Misc feature which is not DRR or HDR related)
+	0: 420
+	1: FRL
+	2: DSC
+	3: ALLM
+	4: NPCM
+	5. Tier mode
+
+HDRxxx: 
+	0: HDR10
+	1: FS2
+	2: HDR10+
+	3: Dolby
+	4: HLG
+
+DRRxxx:
+	0: freesync
+	1: VRR
+	2: FVA + VRR
+	3: Adpative sync
+
+Ex1: A 8k60 HDMI EDID w/ 1 Base block  & 1 CTA ext-block, and has FRL, DSC, 420, HDR10 Capability
+    => EDID name is EDID_HDMI_BC_7680x4320@60_M012_HDR0
+
+Ex2: A 4k DP EDID w/ 1 Base block & 1 CTA ext-block & 1 DIDv2.x ext-block and has DSC, 420, Freesync(48-120Hz), FS2 Capability
+    => EDID name is EDID_DP_BCD2_3840x2160@48-120_M02_HDR1_DRR0

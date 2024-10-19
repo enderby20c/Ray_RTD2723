@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Usage:
+#   - event functions for building SCPU boot code
+
+function pre_build() {
+    # clean elf
+    rm -f "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU_BOOT.elf"
+
+    # fix dependency file format for ninja
+    ./helper.sh fix_dependency
+
+    if [[ "@NO_LINK@" == "OFF" ]]; then
+        # remove old location file
+        if [[ -f "@PROJECT_LOCATION_FILE@" ]] ; then
+            rm -f "@PROJECT_LOCATION_FILE@"
+        fi
+
+        # copy location file from scpu firmware
+        if [[ -f "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU.syms" ]] ; then
+            cp -f \
+                "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU.syms" \
+                "@PROJECT_LOCATION_FILE@"
+        fi
+
+        # from default content
+        if [[ ! -f "@PROJECT_LOCATION_FILE@" ]] ; then
+            echo "__LOC_FILE_END__ = 1;" > "@PROJECT_LOCATION_FILE@"
+        fi
+    fi
+}
+
+function pre_link() {
+    # pre-process .ld template
+    ./cpp_cmd.sh ld_template.ld > ld_template.ld.i
+
+    "@WRAPPER_BIN@" ld_gen \
+        --input-path ld_template.ld.i \
+        --output-path "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU_BOOT.ld"
+}
+
+function post_build() {
+    # create flash image
+    @OBJCOPY@ \
+        -O binary \
+        --gap-fill 0xFF \
+        "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU_BOOT.elf" \
+        "@OUTPUT_DIR@/COMMON_FILES/firmware_image_SCPU_BOOT.bin"
+
+    # copy .bin to output
+    cp -f \
+        "@OUTPUT_DIR@/COMMON_FILES/firmware_image_SCPU_BOOT.bin" \
+        "@OUTPUT_DIR@/@PROJECT_NAME@.bin"
+
+    # patch binary for resource info
+    "./@SCALER_NAME@_build_actions.sh" copy_resource_info
+
+    # dump asm
+    if [[ @CMAKE_BUILD_TYPE@ == "Debug" ]]; then
+        ./helper.sh dump_asm \
+            "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU_BOOT.elf" \
+            "@PROJECT_NAME@_SCPU_BOOT"
+    fi
+
+    # print size info
+    ./helper.sh size_info \
+        "@OUTPUT_DIR@/COMMON_FILES" \
+        "@PROJECT_NAME@_SCPU_BOOT"
+}
+
+function clean_all() {
+    cmake --build . --target clean
+
+    # remove dump files
+    rm -f dump/*.{dump,S}
+
+    # remove stack usage files
+    find CMakeFiles | grep "\.su$" | xargs rm -f
+}
+
+
+# actions
+ACTION_ID=${1}
+case ${ACTION_ID} in
+    pre_build)
+        pre_build
+    ;;
+    pre_link)
+        pre_link
+    ;;
+    post_build)
+        post_build
+    ;;
+    clean_all)
+        clean_all
+    ;;
+esac

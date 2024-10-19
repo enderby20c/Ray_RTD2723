@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+# Usage:
+#   - helper functions for build scripts
+
+# function to dump assembly content
+#   $1: ELF file name
+#   $2: dump file file name
+function dump_asm() {
+    ELF_FILE="${1}"
+    DUMP_FILE="${2}"
+
+    FLAGS="-h -S -l --show-raw-insn"
+
+    # shellcheck disable=SC2086
+    @OBJDUMP@ ${FLAGS} "${ELF_FILE}" > "${DUMP_FILE}.dump"
+
+    for SECTION_NAME in ".text" ".data" ".bss" ".fast_data"; do
+        # shellcheck disable=SC2086
+        @OBJDUMP@ ${FLAGS} "${ELF_FILE}" -j ${SECTION_NAME} > "${DUMP_FILE}${SECTION_NAME}.dump"
+    done
+}
+
+# function to print size info
+#   $1: output dir for .elf files
+#   $2: project name
+function size_info() {
+    INPUT_ELF_FILE="${1}"/${2}.elf
+    OUTPUT_ELF_FILE="__size_info__.elf"
+
+    # create .elf for better size infomation
+    @OBJCOPY@ \
+        -O elf32-little \
+        --set-section-flags .inits=contents,alloc,load,readonly,code \
+        --remove-section .flash.bank_filler \
+        --remove-section .flash.bank_prefill \
+        --remove-section .MIPS.abiflags \
+        --remove-section ._check_stack \
+        --remove-section .kcpu_firmware_image \
+        --remove-section .firmware_image \
+        --remove-section .firmware_binary_data \
+        "${INPUT_ELF_FILE}" \
+        "${OUTPUT_ELF_FILE}" \
+        2> /dev/null
+
+    RAW_STR=$( "@SIZE@" -x "${OUTPUT_ELF_FILE}" | grep "^ *0x" )
+
+    ITEM_COUNT=0
+    BASE_NAME="${INPUT_ELF_FILE##*/}"
+    SIZE_STR="${BASE_NAME}: "
+
+    for ITEM in ${RAW_STR}
+    do
+        case ${ITEM_COUNT} in
+            "0")
+                SIZE_STR="${SIZE_STR} text=${ITEM}"
+                ;;
+
+            "1")
+                SIZE_STR="${SIZE_STR}, data=${ITEM}"
+                ;;
+            "2")
+                SIZE_STR="${SIZE_STR}, bss=${ITEM}"
+                ;;
+        esac
+
+        ITEM_COUNT=$(( ITEM_COUNT  + 1 ))
+    done
+
+    rm -f "${OUTPUT_ELF_FILE}"
+
+    echo
+    echo "Program size:"
+    echo "${SIZE_STR}"
+    echo
+}
+
+# function to fix ninja dependency issues
+function fix_dependency() {
+    # switch to script directory
+    cd "$( dirname "${0}" )"
+
+    # backup build.ninja
+    cp -f build.ninja build.ninja.old
+
+    # fix dependency file path for ninja
+    sed -i -e "s/\\.obj\\.d/.d/" build.ninja
+
+    # convert to relative path
+    #   - output path
+    #   - project path
+    REAL_OUTPUT_DIR=$( realpath -L --relative-to=. "@OUTPUT_DIR@" )
+    REAL_PROJECT_DIR=$( realpath -L --relative-to=. "@PROJECT_DIR@" )
+
+    for file_path in build.ninja ./CMakeFiles/*.sh
+    do
+        if [[ -f "${file_path}" ]]; then
+            sed -i -e "s|@OUTPUT_DIR@|${REAL_OUTPUT_DIR}|g" "${file_path}"
+            sed -i -e "s|@PROJECT_DIR@|${REAL_PROJECT_DIR}|g" "${file_path}"
+        fi
+    done
+
+    # fix compile command in windows
+    if [[ $( uname ) =~ .*(MINGW|MSYS).* ]]; then
+        # convert directory to windows format
+        OUTPUT_DIR=$( pwd )
+        OUTPUT_DIR_WINDOWS=$( cygpath -w "${OUTPUT_DIR}" )
+        OUTPUT_DIR_WINDOWS=${OUTPUT_DIR_WINDOWS//\\//}
+
+        sed -i -e "s|${OUTPUT_DIR}|${OUTPUT_DIR_WINDOWS}|g" compile_commands.json
+
+        # convert project path to relative path
+        sed -i -e "s|@PROJECT_DIR@|${REAL_PROJECT_DIR}|g" compile_commands.json
+
+        # convert comiler path to windows format with baskslash
+        WINDOWS_C_COMPILER=$( cygpath -w @CMAKE_C_COMPILER@ | sed -e 's/\\/\\\\\\\\/g' )
+        sed -i -e "s|@CMAKE_C_COMPILER@|${WINDOWS_C_COMPILER}|g" compile_commands.json
+    fi
+}
+
+# function to convert windows line break to unix
+#   $1: input file
+function fix_crlf() {
+    INPUT_FILE="${1}"
+
+    sed -i "s/\r//" "${INPUT_FILE}"
+}
+
+# function to patch binary file
+#   $1: binary file to be patched
+#   $2: patch address (hex/decimal integer)
+#   $3: patch data value
+#       - syntax: "\x00\x11..."
+function patch_binary() {
+    BIN_FILE=${1}
+    PATCH_ADDRESS=$(( ${2} ))
+    PATCH_DATA=${3}
+
+    DATA_LENGTH=$(( ${#PATCH_DATA} / 4 ))
+
+    # shellcheck disable=SC2059
+    printf "${PATCH_DATA}" | \
+        dd of="${BIN_FILE}" \
+            bs=1 \
+            seek="${PATCH_ADDRESS}" \
+            count="${DATA_LENGTH}" \
+            status=none \
+            conv=notrunc
+}
+
+# function to copy binary data within file
+#   $1: binary file to be patched
+#   $2: patch from address (decimal integer)
+#   $3: patch to address
+#   $4: patch length
+function copy_binary_content() {
+    BIN_FILE=${1}
+    ADDRESS_FROM=${2}
+    ADDRESS_TO=${3}
+    DATA_LENGTH=${4}
+
+    DUMP_FILE=__dump_data__
+
+    rm -f ${DUMP_FILE}
+
+    dd if="${BIN_FILE}" \
+        of=${DUMP_FILE} \
+        bs=1 \
+        skip=${ADDRESS_FROM} \
+        count=${DATA_LENGTH} \
+        status=none \
+        conv=notrunc
+
+    dd if=${DUMP_FILE} \
+        of="${BIN_FILE}" \
+        bs=1 \
+        seek=${ADDRESS_TO} \
+        count=${DATA_LENGTH} \
+        status=none \
+        conv=notrunc
+
+    rm -f ${DUMP_FILE}
+}
+
+# function to create aligned binary file
+#   $1: input binary file
+#   $2: output binary file
+function align_64k() {
+    INPUT_FILE=$1
+    OUTPUT_FILE=$2
+
+    PADDING_FILE="__padding__.bin"
+
+    if [[ "${INPUT_FILE}" == "" || "${OUTPUT_FILE}" == "" ]]; then
+        echo invalid intput/output
+        return
+    fi
+
+    INPUT_SIZE=$( wc -c "${INPUT_FILE}" | cut -f1 -d" " )
+
+    # calculate padding size
+    BANK_COUNT=$(( INPUT_SIZE / 65536 ))
+
+    if [[ $(( INPUT_SIZE % 65536 )) != 0 ]]; then
+        BANK_COUNT=$(( BANK_COUNT + 1 ))
+    fi
+
+    PADDING_SIZE=$(( BANK_COUNT * 65536 - INPUT_SIZE ))
+
+    # create padding file filled with 0xFF
+    dd status=none if=/dev/zero ibs=1 count=${PADDING_SIZE} | \
+        tr "\000" "\377" \
+        > ${PADDING_FILE}
+
+    # output file = input file + padding
+    cat "${INPUT_FILE}" "${PADDING_FILE}" > "${OUTPUT_FILE}"
+
+    # remove padding file
+    rm -f "${PADDING_FILE}"
+}
+
+# function to generate hex files
+function generate_hex() {
+    # remove old hex files
+    rm -f "@OUTPUT_DIR@/@PROJECT_NAME@.H[0-9][0-9]"
+
+    # create hex image
+    @OBJCOPY@ \
+        -I binary \
+        -O ihex \
+        "@OUTPUT_DIR@/@PROJECT_NAME@.bin" \
+        "@OUTPUT_DIR@/@PROJECT_NAME@.ihex"
+
+    # split by bank
+    csplit \
+        --quiet \
+        --elide-empty-files \
+        --suppress-matched \
+        --prefix="@OUTPUT_DIR@/@PROJECT_NAME@.H" \
+        "@OUTPUT_DIR@/@PROJECT_NAME@.ihex" \
+        /^:0[20]00000[124][0-9A-F]*/ "{*}"
+
+    # append end-of-file record
+    for hex_file in "@OUTPUT_DIR@/@PROJECT_NAME@".H[0-9][0-9]
+    do
+        echo -ne ":00000001FF\r\n" >> "${hex_file}"
+    done
+
+    # remove raw hex file
+    rm -f "@OUTPUT_DIR@/@PROJECT_NAME@.ihex"
+}
+
+# function to update filtered file list
+#   $1: listing file
+function filter_file_list() {
+    LISTING_FILE=${1}
+
+    # check if filter file exist
+    if [[ ! -s "${LISTING_FILE}" ]]; then
+        return
+    fi
+
+    # calculate relative path
+    REL_PROJECT_DIR=$( realpath --relative-to="@CMAKE_OUTPUT_DIR@" "@PROJECT_DIR@" )
+
+    IFS="|" read -r -a file_path_list < "${LISTING_FILE}"
+
+    for file_path in "${file_path_list[@]}"
+    do
+        rel_file_path="${REL_PROJECT_DIR}/${file_path}"
+        abs_file_path=$( realpath "@PROJECT_DIR@/${file_path}" )
+
+        if grep -q -E "\"file\": \"(${rel_file_path}|${abs_file_path})\"" "@CMAKE_OUTPUT_DIR@/compile_commands.json" ; then
+            echo -n "${rel_file_path}^ "
+        fi
+    done
+}
+
+# actions
+ACTION_ID=${1}
+shift
+case ${ACTION_ID} in
+    fix_dependency)
+        fix_dependency "${@}"
+    ;;
+    fix_crlf)
+        fix_crlf "${@}"
+    ;;
+    dump_asm)
+        dump_asm "${@}"
+    ;;
+    size_info)
+        size_info "${@}"
+    ;;
+    patch_binary)
+        patch_binary "${@}"
+    ;;
+    copy_binary_content)
+        copy_binary_content "${@}"
+    ;;
+    align_64k)
+        align_64k "${@}"
+    ;;
+    generate_hex)
+        generate_hex "${@}"
+    ;;
+    filter_file_list)
+        filter_file_list "${@}"
+    ;;
+esac

@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Usage:
+#   - steps for running all build scripts
+
+export LANG=C
+
+function build_all() {
+    TIME_START=$( date +%s )
+
+    TOTAL_NOTE_COUNT=0
+    TOTAL_WARNING_COUNT=0
+    TOTAL_ERROR_COUNT=0
+
+    BUILD_STEP_DIRS=(@CMAKE_OUTPUT_DIR_LIST@)
+    BUILD_STEP_INDEX=-1
+
+    # update file filter
+    echo -n "@FILE_FILTER@" > __file_list__
+
+    for BUILD_DIR in "${BUILD_STEP_DIRS[@]}";
+    do
+        # run build step
+        BUILD_STEP_INDEX=$(( BUILD_STEP_INDEX + 1 ))
+        source "${BUILD_DIR}/run_build.sh"
+
+        # check build step status
+        if [[ ${STATUS} != "0" ]]; then
+            break
+        fi
+    done
+
+    if [[ "@NO_LINK@" == "OFF" ]]; then
+        # generate hex files
+        if [[ -f "@OUTPUT_DIR@/@PROJECT_NAME@.bin" ]]; then
+            "${BUILD_STEP_DIRS[${BUILD_STEP_INDEX}]}/helper.sh" generate_hex
+        fi
+
+        # run user post-build script, if defined
+        post_build
+    fi
+
+    # update time
+    TIME_END=$( date +%s )
+    TIME_TOTAL=$(( TIME_END - TIME_START ))
+
+    echo
+    echo "Finished in ${TIME_TOTAL} (sec)"
+    echo "              Total: ${TOTAL_ERROR_COUNT} Error(s), ${TOTAL_WARNING_COUNT} Warning(s), ${TOTAL_NOTE_COUNT} Note(s)"
+    echo
+
+    if [[ $(( TOTAL_ERROR_COUNT + TOTAL_WARNING_COUNT )) != 0 ]]; then
+        exit 1
+    fi
+}
+
+function post_build() {
+    # skip post-build if not defined
+    if [[ "@USER_POST_BUILD_SCRIPT@" == "" ]]; then
+        return
+    fi
+
+    USER_POST_BUILD_SCRIPT_NAME="@USER_POST_BUILD_SCRIPT@"
+    USER_POST_BUILD_SCRIPT_NAME=${USER_POST_BUILD_SCRIPT_NAME##*/}
+
+    # generate post-build script
+    cmake \
+        -DIN_PATH="@PROJECT_DIR@/@USER_POST_BUILD_SCRIPT@" \
+        -DOUT_PATH="@OUTPUT_DIR@/${USER_POST_BUILD_SCRIPT_NAME}" \
+        -DPROJECT_DIR="@PROJECT_DIR@" \
+        -P "@SCRIPT_DIR@/configure_gen.cmake"
+
+    chmod +x "${USER_POST_BUILD_SCRIPT_NAME}"
+
+    # run post-build script, if necessary
+    if [[ "@DRY_RUN@" != "ON" && \
+          "${TOTAL_ERROR_COUNT}" == "0" ]]; then
+        "@OUTPUT_DIR@/${USER_POST_BUILD_SCRIPT_NAME}" "@PROJECT_NAME@"
+    fi
+}
+
+function clean_all() {
+    # remove binary/hex files
+    rm -f "@CMAKE_BINARY_DIR@"/@PROJECT_NAME@.bin
+    rm -f "@CMAKE_BINARY_DIR@"/@PROJECT_NAME@.H[0-9][0-9]
+
+    BUILD_STEP_DIRS=(@CMAKE_OUTPUT_DIR_LIST@)
+
+    for BUILD_DIR in "${BUILD_STEP_DIRS[@]}";
+    do
+        # check if cmake cache exists
+        if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+            continue
+        fi
+
+        # run clean step
+        cmake \
+            --build "${BUILD_DIR}" \
+            --target clean_all
+    done
+}
+
+
+# actions
+ACTION_ID=${1}
+case ${ACTION_ID} in
+    build_all)
+        build_all
+    ;;
+    post_build)
+        post_build
+    ;;
+    clean_all)
+        clean_all
+    ;;
+esac

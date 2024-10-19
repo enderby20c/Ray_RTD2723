@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+function generate_syms() {
+    :
+}
+
+
+# actions
+ACTION_ID=${1}
+case ${ACTION_ID} in
+    generate_syms)
+        generate_syms
+    ;;
+esac

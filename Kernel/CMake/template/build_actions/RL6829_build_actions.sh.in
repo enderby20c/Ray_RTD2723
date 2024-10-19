@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+
+# function to patch binary file
+#   $1: tag (ex: data, rodata)
+function generate_kcpu_syms_info() {
+    tag=${1}
+
+    @NM@ "@PROJECT_NAME@_${tag}.syms.raw" \
+        > "@PROJECT_NAME@_${tag}_loc_raw.txt"
+
+    # read skip symbols to be removed
+    "@WRAPPER_BIN@" dump_parser \
+        dump/ \
+        "--${tag}-ref" \
+        > "@PROJECT_NAME@_${tag}_skip.txt"
+
+    SKIP_CONTENT=()
+
+    while IFS= read -r line
+    do
+        line=${line//[$'\r\n']}
+        SKIP_CONTENT+=("${line}")
+    done < "@PROJECT_NAME@_${tag}_skip.txt"
+
+    # read raw symbols
+    SYM_CONTENT=()
+
+    while IFS= read -r line
+    do
+        line=${line//[$'\r\n']}
+
+        [[ ${line} =~ ([0-9a-f]+)\ ([RrBbCcDdVv])\ (.*) ]]
+        address="${BASH_REMATCH[1]}"
+        symbol_type="${BASH_REMATCH[2]}"
+        symbol="${BASH_REMATCH[3]}"
+
+        # filter local symbols
+        if [[ "${symbol_type}" =~ [a-z] ]]; then
+            continue
+        fi
+
+        # filter by special char
+        if [[ "${symbol}" =~ \. ]]; then
+            continue
+        fi
+
+        # filter leading underscore "_"
+        if [[ "${symbol}" = _* ]]; then
+            continue
+        fi
+
+        # filter by skip table
+        is_filtered="0"
+
+        for skip_symbol in "${SKIP_CONTENT[@]}";
+        do
+            if [[ "${symbol}" == "${skip_symbol}" ]]; then
+                is_filtered="1"
+                break
+            fi
+        done
+
+        if [[ "${is_filtered}" != "0" ]]; then
+            continue
+        fi
+
+        # format syms
+        SYM_CONTENT+=("${symbol} = 0x${address};")
+
+    done < "@PROJECT_NAME@_${tag}_loc_raw.txt"
+
+    # construct rodata .syms
+    printf "%s\n" "${SYM_CONTENT[@]}" > "@PROJECT_NAME@_${tag}.syms"
+
+    # output to common file
+    cat \
+        "@PROJECT_NAME@_${tag}.syms" \
+        >> "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.syms"
+}
+
+function generate_kcpu_syms_init() {
+    @OBJCOPY@ \
+        -O elf32-little \
+        --extract-symbol \
+        "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf" \
+        "@PROJECT_NAME@_KCPU_init.syms"
+
+    @NM@ "@PROJECT_NAME@_KCPU_init.syms"  > "@PROJECT_NAME@_KCPU_init_loc_raw.txt"
+
+    grep "__kcpu_firmware" "@PROJECT_NAME@_KCPU_init_loc_raw.txt" \
+        | grep -v "\\." \
+        | sort -u \
+        > "@PROJECT_NAME@_KCPU_init.syms"
+
+    sed -i -e "s/\(.*\) . \(.*\)/\2 = 0x\1;/g" "@PROJECT_NAME@_KCPU_init.syms"
+
+    # output to common file
+    cat \
+        "@PROJECT_NAME@_KCPU_init.syms" \
+        >> "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.syms"
+}
+
+function generate_kcpu_syms_resource() {
+
+    # resource info
+    RESOURCE_INFO_ADDRESS=$(\
+        grep __resource_info_region_start "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.map"
+    )
+
+    if [[ "${RESOURCE_INFO_ADDRESS}" != "" ]]; then
+        @OBJCOPY@ \
+            -O elf32-little \
+            --extract-symbol \
+            -j ".inits" \
+            "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf" \
+            "@PROJECT_NAME@_init.syms"
+
+        @NM@ "@PROJECT_NAME@_init.syms"  > "@PROJECT_NAME@_init_loc_raw.txt"
+
+        grep "__resource_info_.*" "@PROJECT_NAME@_init_loc_raw.txt" \
+            | sort -u \
+            > "@PROJECT_NAME@_init.syms"
+
+        sed -i -e "s/\(.*\) . \(.*\)/\2 = 0x\1;/g" "@PROJECT_NAME@_init.syms"
+
+        # update .init address
+        #   - address SCPU = address KCPU - 0x86000000
+        sed -i -e "s/;/ - 0x86000000;/g" "@PROJECT_NAME@_init.syms"
+
+        cat \
+            "@PROJECT_NAME@_init.syms" \
+            >> "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.syms"
+    fi
+}
+
+function generate_kcpu_syms() {
+
+    rm -f "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.syms"
+
+    # extract symbols in share ram
+    @OBJCOPY@ \
+        -O elf32-little \
+        --extract-symbol \
+        -j ".bss" \
+        -j ".data" \
+        "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf" \
+        "@PROJECT_NAME@_data.syms.raw"
+
+    generate_kcpu_syms_info data
+
+    # extract symbols in rodata
+    @OBJCOPY@ \
+        -O elf32-little \
+        --extract-symbol \
+        --change-addresses -0x86000000 \
+        -j ".rodata" \
+        -j ".clip.rodata" \
+        "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.elf" \
+        "@PROJECT_NAME@_rodata.syms.raw"
+
+    generate_kcpu_syms_info rodata
+
+    # extract symbols for kcpu firmware info
+    generate_kcpu_syms_init
+
+    # generate resource info
+    generate_kcpu_syms_resource
+}
+
+function generate_scpu_syms() {
+
+    rm -f "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU.syms"
+
+    @OBJCOPY@ \
+        -O elf32-little \
+        --extract-symbol \
+        "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU.elf" \
+        "@PROJECT_NAME@_SCPU_init.syms"
+
+    @NM@ "@PROJECT_NAME@_SCPU_init.syms"  > "@PROJECT_NAME@_SCPU_init_loc_raw.txt"
+
+    # formatting
+    grep "__scpu_firmware" "@PROJECT_NAME@_SCPU_init_loc_raw.txt" \
+        | grep -v "\\." \
+        | sort -u \
+        > "@PROJECT_NAME@_SCPU_init.syms"
+
+    sed -i -e "s/\(.*\) . \(.*\)/\2 = 0x\1;/g" "@PROJECT_NAME@_SCPU_init.syms"
+
+    # output to common file
+    cat \
+        "@PROJECT_NAME@_SCPU_init.syms" \
+        >> "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU.syms"
+}
+
+function copy_resource_info() {
+    ADDRESS_FROM=$(\
+        grep __resource_info_region_start "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@_SCPU_BOOT.map" |\
+        grep -oE "0x[0-9a-f]+" \
+    )
+    ADDRESS_TO=$(\
+        grep __resource_info_region_start "@OUTPUT_DIR@/COMMON_FILES/@PROJECT_NAME@.map" | \
+        grep -oE "0x[0-9a-f]+"
+    )
+
+    if [[ "${ADDRESS_FROM}" != "" && "${ADDRESS_FROM}" != "" ]]; then
+
+        ADDRESS_FROM=$(( ADDRESS_FROM ))
+        ADDRESS_TO=$(( ADDRESS_TO - 0x86000000 ))
+
+        ./helper.sh copy_binary_content \
+            "@OUTPUT_DIR@/@PROJECT_NAME@.bin" \
+            ${ADDRESS_FROM} \
+            ${ADDRESS_TO} \
+            4
+    fi
+}
+
+# actions
+ACTION_ID=${1}
+case ${ACTION_ID} in
+    generate_kcpu_syms)
+        generate_kcpu_syms
+    ;;
+    generate_scpu_syms)
+        generate_scpu_syms
+    ;;
+    copy_resource_info)
+        copy_resource_info
+    ;;
+esac

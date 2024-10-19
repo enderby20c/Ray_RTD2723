@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Usage:
+#   - clipping flow
+
+function generate_assembly_3081() {
+    if [[ "@BUILD_TEMPLATE@" == "build_KCPU_firmware" ]]; then
+        {
+            echo ".section .clip.redirect, \"ax\""
+            echo
+        } >> "${REDIRECT_NAME}.S"
+    fi
+
+    while IFS= read -r symbol
+    do
+        # skip internal symbols
+        if [[ "${symbol}" =~ .*\..* ]]; then
+            continue
+        fi
+
+        if [[ "@BUILD_TEMPLATE@" != "build_KCPU_firmware" ]]; then
+            {
+                echo ".section .clip.redirect.${symbol}, \"ax\""
+            } >> "${REDIRECT_NAME}.S"
+        fi
+
+        {
+            echo ".align 2"
+            echo ".global ${symbol}"
+            echo "${symbol}:"
+            echo "    li \$v0, __clip__${symbol}"
+            echo "    jr \$v0"
+            echo
+        } >> "${REDIRECT_NAME}.S"
+    done < "${TEXT_SYMBOL_TABLE}"
+}
+
+function generate_assembly_tr9() {
+    if [[ "@BUILD_TEMPLATE@" == "build_KCPU_firmware" ]]; then
+        {
+            echo ".section .clip.redirect, \"ax\""
+            echo
+        } >> "${REDIRECT_NAME}.S"
+    fi
+
+    while IFS= read -r symbol
+    do
+        # skip internal symbols
+        if [[ "${symbol}" =~ .*\..* ]]; then
+            continue
+        fi
+
+        if [[ "@BUILD_TEMPLATE@" != "build_KCPU_firmware" ]]; then
+            {
+                echo ".section .clip.redirect.${symbol}, \"ax\""
+            } >> "${REDIRECT_NAME}.S"
+        fi
+
+        {
+            echo ".align 2"
+            echo ".global ${symbol}"
+            echo "${symbol}:"
+            echo "    tail __clip__${symbol}"
+            echo
+        } >> "${REDIRECT_NAME}.S"
+    done < "${TEXT_SYMBOL_TABLE}"
+}
+
+OBJECT_FILE=${1}
+DUMP_FILE=dump/$( basename "${OBJECT_FILE}" ).dump
+
+OBJECT_NAME=$( basename "${OBJECT_FILE}" .obj )
+OBJECT_ROOT=$( dirname "${OBJECT_FILE}" )
+
+echo
+echo "#warning \"NOTE: clipping enabled for ${OBJECT_NAME}\""
+echo
+
+REDIRECT_NAME="${OBJECT_ROOT}/${OBJECT_NAME}_redirect"
+RENAME_NAME="${OBJECT_ROOT}/${OBJECT_NAME}_rename"
+TEXT_SYMBOL_TABLE="${OBJECT_ROOT}/${OBJECT_NAME}_text_symbol_table.txt"
+RODATA_SYMBOL_TABLE="${OBJECT_ROOT}/${OBJECT_NAME}_rodata_symbol_table.txt"
+RENAME_CMD_FILE="${OBJECT_ROOT}/${OBJECT_NAME}_rename_cmd.txt"
+
+GLOBAL_CFLAGS="@GLOBAL_CFLAGS@"
+GLOBAL_CFLAGS=${GLOBAL_CFLAGS//";"/ }
+
+# clean up
+rm -f "${REDIRECT_NAME}.S" "${REDIRECT_NAME}.obj"
+rm -f "${RENAME_NAME}.obj"
+rm -f "${TEXT_SYMBOL_TABLE}"
+rm -f "${RODATA_SYMBOL_TABLE}"
+rm -f "${RENAME_CMD_FILE}"
+
+# create symbol tables
+{
+    grep -oE "^ *[0-9]+ .text.[^ ]+" | \
+    grep -v "RTK_DEBUG_CLIP" | \
+    sed -E "s/^ *[0-9]+ .text.//"
+} < "${DUMP_FILE}" > "${TEXT_SYMBOL_TABLE}"
+
+{
+    grep -oE "^ *[0-9]+ .rodata.[^ ]+" | \
+    sed -E "s/^ *[0-9]+ .rodata.//"
+} < "${DUMP_FILE}" > "${RODATA_SYMBOL_TABLE}"
+
+# construct redirect tables
+rm -f "${REDIRECT_NAME}.S"
+
+if [[ "@CPU_TYPE@" == "RX3081" ]]; then
+    generate_assembly_3081
+fi
+
+if [[ "@CPU_TYPE@" == "TR9" ]]; then
+    generate_assembly_tr9
+fi
+
+# create redirect .obj
+@CMAKE_C_COMPILER@ \
+    ${GLOBAL_CFLAGS} \
+    -c "${REDIRECT_NAME}.S" \
+    -o "${REDIRECT_NAME}.obj"
+
+# create rename command file
+rm -f "${RENAME_CMD_FILE}"
+
+# rename .text & .rodata
+{
+    echo "--rename-section .text=.clip.text"
+    echo "--rename-section .rodata=.clip.rodata"
+} > "${RENAME_CMD_FILE}"
+
+# redefine symbol with __clip__ prefix
+while IFS= read -r symbol
+do
+    # skip internal symbols
+    if [[ "${symbol}" =~ .*\..* ]]; then
+        continue
+    fi
+
+    {
+        echo "--redefine-sym ${symbol}=__clip__${symbol}"
+    } >> "${RENAME_CMD_FILE}"
+done < "${TEXT_SYMBOL_TABLE}"
+
+# rename .text sections
+while IFS= read -r symbol
+do
+    {
+        echo "--rename-section .text.${symbol}=.clip.text.${symbol}"
+    } >> "${RENAME_CMD_FILE}"
+done < "${TEXT_SYMBOL_TABLE}"
+
+# rename .rodata sections
+while IFS= read -r symbol
+do
+    {
+        echo "--rename-section .rodata.${symbol}=.clip.rodata.${symbol}"
+    } >> "${RENAME_CMD_FILE}"
+done < "${RODATA_SYMBOL_TABLE}"
+
+@OBJCOPY@ \
+    "@${RENAME_CMD_FILE}" \
+    "${OBJECT_FILE}" \
+    "${RENAME_NAME}.obj"
+
+# merge obj & update dump
+mv -f "${OBJECT_FILE}" "${OBJECT_FILE}.raw"
+mv -f "${DUMP_FILE}" "${DUMP_FILE}.raw"
+
+@CMAKE_C_COMPILER@ \
+    ${GLOBAL_CFLAGS} \
+    -r \
+    -o "${OBJECT_FILE}" \
+    "${REDIRECT_NAME}.obj" "${RENAME_NAME}.obj"
+
+@OBJDUMP@ @OBJDUMP_FLAGS@ "${OBJECT_FILE}" > "${DUMP_FILE}"

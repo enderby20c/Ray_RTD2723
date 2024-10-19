@@ -1,0 +1,10 @@
+# ignore compiler output
+Output/
+
+# ignore uVision backup files
+*.Opt
+*.Bak
+
+# ignore hidden folders
+.*
+!/.gitignore

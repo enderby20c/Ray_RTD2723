@@ -1,0 +1,92 @@
+/********************************************************************************/
+/*   Copyright (c) 2021 Realtek Semiconductor Corp. All rights reserved.        */
+/*                                                                              */
+/*   Commercial License Usage                                                   */
+/*   This software component is confidential and proprietary to Realtek         */
+/*   Semiconductor Corp. Disclosure, reproduction, redistribution, in whole     */
+/*   or in part, of this work and its derivatives without express permission    */
+/*   is prohibited.                                                             */
+/********************************************************************************/
+
+/*
+   DECOMPRESS - Fast LZ compression algorithm
+   Copyright (C) 2011-2012, Yann Collet.
+   BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+
+       * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following disclaimer
+   in the documentation and/or other materials provided with the
+   distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+*/
+
+/*   SPDX-License-Identifier: LicenseRef-Realtek-Proprietary AND BSD 2-Clause   */
+
+//----------------------------------------------------------------------------------------------------
+// ID Code      : ScalerGosdDecompress.h No.0000
+// Update Note  :
+//----------------------------------------------------------------------------------------------------
+#ifndef __SCALER_GOSD_DECOMPRESS_H__
+#define __SCALER_GOSD_DECOMPRESS_H__
+
+#if(_GOSD_SUPPORT == _ON)
+//****************************************************************************
+// DEFINITIONS / MACROS
+//****************************************************************************
+#define _GOSD_DECOMPRESS_ARCHIVE_MAGICNUMBER            0x184C2102
+
+#define _GOSD_DECOMPRESS_STEPSIZE                       4
+#define _GOSD_DECOMPRESS_ML_BITS                        4
+#define _GOSD_DECOMPRESS_COPYLENGTH                     8
+
+#define _GOSD_DECOMPRESS_ML_MASK                        ((1U << _GOSD_DECOMPRESS_ML_BITS) - 1)
+#define _GOSD_DECOMPRESS_RUN_BITS                       (8 - _GOSD_DECOMPRESS_ML_BITS)
+#define _GOSD_DECOMPRESS_RUN_MASK                       ((1U << _GOSD_DECOMPRESS_RUN_BITS) - 1)
+
+#define GOSD_DECOMPRESS_WILDCOPY(s, d, e)\
+                                                        {\
+                                                            do\
+                                                            {\
+                                                                UNALIGNED_DWORD_COPY((d), (s));\
+                                                                (d) += 4;\
+                                                                (s) += 4;\
+                                                            }\
+                                                            while((d) < (e));\
+                                                        }
+
+
+//****************************************************************************
+// STRUCT / TYPE / ENUM DEFINITTIONS
+//****************************************************************************
+
+//****************************************************************************
+// VARIABLE EXTERN
+//****************************************************************************
+
+
+//****************************************************************************
+// FUNCTION EXTERN
+//****************************************************************************
+
+#endif // #if(_GOSD_SUPPORT == _ON)
+
+
+#endif // End of #ifndef __SCALER_GOSD_DECOMPRESS_H__

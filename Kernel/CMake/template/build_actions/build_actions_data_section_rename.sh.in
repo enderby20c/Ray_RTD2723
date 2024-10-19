@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Usage:
+#   - rename .XXX_data section to .XXX_bss if possible
+
+DATA_TYPE=${1}
+OBJECT_FILE=${2}
+
+DUMP_FILE=dump/$( basename "${OBJECT_FILE}" ).dump
+
+OBJECT_NAME=$( basename "${OBJECT_FILE}" .obj )
+OBJECT_ROOT=$( dirname "${OBJECT_FILE}" )
+
+RENAME_NAME="${OBJECT_ROOT}/${OBJECT_NAME}_rename"
+DATA_SYMBOL_TABLE="${OBJECT_ROOT}/${OBJECT_NAME}_${DATA_TYPE}_DATA_SYMBOL_TABLE.txt"
+RENAME_CMD_FILE="${OBJECT_ROOT}/${OBJECT_NAME}_${DATA_TYPE}_rename_cmd.txt"
+
+# clean up
+rm -f "${RENAME_NAME}.obj"
+rm -f "${DATA_SYMBOL_TABLE}"
+rm -f "${RENAME_CMD_FILE}"
+
+# create symbol tables
+{
+    grep -oE "^ *[0-9]+ .${DATA_TYPE}_data.[^ ]+" | \
+    sed -E "s/^ *[0-9]+ //"
+} < "${DUMP_FILE}" > "${DATA_SYMBOL_TABLE}"
+
+# create rename command file
+rm -f "${RENAME_CMD_FILE}"
+
+# check if .data section should be .bss
+while IFS= read -r section_name
+do
+    # check if section content is all zero
+    @OBJCOPY@ \
+        -O binary \
+        -j "${section_name}" \
+        "${OBJECT_FILE}" \
+        __content__
+
+    NON_ZERO_COUNT=$( tr -d '\0' < __content__ | wc -c )
+
+    rm -f __content__
+
+    if [ "${NON_ZERO_COUNT}" == "0" ]; then
+        {
+            echo "--rename-section ${section_name}=${section_name/.${DATA_TYPE}_data/.${DATA_TYPE}_bss},alloc"
+        } >> "${RENAME_CMD_FILE}"
+    fi
+
+done < "${DATA_SYMBOL_TABLE}"
+
+if [[ -f "${RENAME_CMD_FILE}" ]]; then
+    @OBJCOPY@ \
+        "@${RENAME_CMD_FILE}" \
+        "${OBJECT_FILE}" \
+        "${RENAME_NAME}.obj"
+
+    # merge obj & update dump
+    mv -f "${OBJECT_FILE}" "${OBJECT_FILE}.raw"
+    mv -f "${DUMP_FILE}" "${DUMP_FILE}.raw"
+    mv -f "${RENAME_NAME}.obj" "${OBJECT_FILE}"
+
+    @OBJDUMP@ @OBJDUMP_FLAGS@ "${OBJECT_FILE}" > "${DUMP_FILE}"
+fi

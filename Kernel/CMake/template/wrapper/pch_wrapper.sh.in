@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Usage:
+#   - wrapper script for running pre-compiled header
+# Args:
+#   $1: source file
+#   $2: output file
+
+RUN_PCH=0
+
+DEP_FILE=${2//.gch/.d}
+LOG_FILE="${2}.txt"
+
+if [[ ! -e "$2" ]]; then
+
+    echo "${2} missing" > "${LOG_FILE}"
+    RUN_PCH=1
+
+elif [[ "${1}" -nt "${2}" ]]; then
+
+    echo "${1} newer than ${2}" > "${LOG_FILE}"
+    RUN_PCH=1
+
+elif [[ ! -e "${DEP_FILE}" ]]; then
+
+    echo "${DEP_FILE} missing" > "${LOG_FILE}"
+    RUN_PCH=1
+
+else
+    # convert to unix-style
+    ./helper.sh fix_crlf "${DEP_FILE}"
+
+    while IFS= read -r dep_file || [ -n "${dep_file}" ]
+    do
+        if [[ ! -e "${dep_file}" || "${dep_file}" -nt "${2}" ]]; then
+
+            echo "${dep_file} missing or newer than ${2}" > "${LOG_FILE}"
+            RUN_PCH=1
+            break
+
+        fi
+    done < <( grep "^.*:$" "${DEP_FILE}" | sed s/:$// )
+fi
+
+if [[ "${RUN_PCH}" == "1" ]]; then
+    ./gcc_cmd.sh -c "${1}" -o "${2}"
+else
+    echo "skip" > "${LOG_FILE}"
+fi

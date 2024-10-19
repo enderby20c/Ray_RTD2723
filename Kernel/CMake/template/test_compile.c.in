@@ -1,0 +1,11 @@
+#include <SysInclude.h>
+
+#if(!(@TEST_CONDITION@))
+#error "(@TEST_CONDITION@) is _FALSE"
+#endif
+
+
+int main()
+{
+    return 0;
+}

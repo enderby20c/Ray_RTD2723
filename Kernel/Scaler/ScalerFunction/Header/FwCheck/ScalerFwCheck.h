@@ -1,0 +1,46 @@
+/********************************************************************************/
+/*   Copyright (c) 2021 Realtek Semiconductor Corp. All rights reserved.        */
+/*                                                                              */
+/*   SPDX-License-Identifier: LicenseRef-Realtek-Proprietary                    */
+/*                                                                              */
+/*   This software component is confidential and proprietary to Realtek         */
+/*   Semiconductor Corp. Disclosure, reproduction, redistribution, in whole     */
+/*   or in part, of this work and its derivatives without express permission    */
+/*   is prohibited.                                                             */
+/********************************************************************************/
+
+//----------------------------------------------------------------------------------------------------
+// ID Code      : ScalerFwCheck.h No.0000
+// Update Note  :
+//----------------------------------------------------------------------------------------------------
+#ifndef __SCALER_FW_CHECK_H__
+#define __SCALER_FW_CHECK_H__
+
+#if(_ISP_FW_CHECK_PROJECT_ID_SUPPORT == _ON)
+
+//****************************************************************************
+// DEFINITIONS / MACROS
+//****************************************************************************
+#define GET_FW_CHECK_CMD_RECEIVED()                             (g_bFwCheckCmdReceived)
+#define SET_FW_CHECK_CMD_RECEIVED()                             (g_bFwCheckCmdReceived = _TRUE)
+#define CLR_FW_CHECK_CMD_RECEIVED()                             (g_bFwCheckCmdReceived = _FALSE)
+
+
+//****************************************************************************
+// STRUCT / TYPE / ENUM DEFINITTIONS
+//****************************************************************************
+
+
+//****************************************************************************
+// VARIABLE EXTERN
+//****************************************************************************
+
+
+//****************************************************************************
+// FUNCTION EXTERN
+//****************************************************************************
+
+#endif // End of #if(_ISP_FW_CHECK_PROJECT_ID_SUPPORT == _ON)
+
+
+#endif // End of #ifndef __SCALER_FW_CHECK_H__

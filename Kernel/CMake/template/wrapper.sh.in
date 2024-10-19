@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+SCRIPT_PATH=$( realpath "${0}" )
+ROOT_PATH=$( dirname "${SCRIPT_PATH}" )
+
+PACKAGE_SRC="@CMAKE_CURRENT_SOURCE_DIR@/Tool/cpu32/@WRAPPER_PACKAGE@"
+PACKAGE_TARGET="${ROOT_PATH}/cpu32_wrapper"
+
+# check init
+if [[ ! -d "${PACKAGE_TARGET}" ]] || \
+   [[ "${PACKAGE_SRC}" -nt "${PACKAGE_TARGET}" ]]; then
+
+    rm -rf "${PACKAGE_TARGET}"
+    mkdir -p "${PACKAGE_TARGET}"
+
+    tar zxf "${PACKAGE_SRC}" -C "${PACKAGE_TARGET}"
+    touch "${PACKAGE_TARGET}"
+fi
+
+"${PACKAGE_TARGET}"/cpu32_wrapper "$@"

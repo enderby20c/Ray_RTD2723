@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Usage:
+#   - steps for single build script
+
+STATUS="0"
+
+#################################
+# build settings
+#################################
+CMAKE_OUTPUT_NAME="@CMAKE_OUTPUT_DIR@"
+CMAKE_OUTPUT_NAME="${CMAKE_OUTPUT_NAME##*/}"
+
+if [[ "@TOOLCHAIN_TYPE@" == "keil" ]]; then
+    JOBS=4
+else
+    JOBS=8
+fi
+
+
+#################################
+# cmake
+#################################
+# initialize log file
+LOG_FILE="@OUTPUT_DIR@/COMMON_FILES/log_@PROJECT_NAME@_${CMAKE_OUTPUT_NAME}.txt"
+echo > "${LOG_FILE}"
+
+# run cmake
+cmake \
+    -S "@PROJECT_DIR@" \
+    -B "@CMAKE_OUTPUT_DIR@" \
+    -G "@GENERATOR_TYPE@" \
+    -D"@IDE_TYPE@" \
+    --no-warn-unused-cli  \
+    -DCPU_TYPE="@CPU_TYPE@" \
+    -DPROJECT_NAME="@PROJECT_NAME@" \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+    -DCMAKE_TOOLCHAIN_FILE="@SCRIPT_DIR@/toolchain/Toolchain_@TOOLCHAIN_TYPE@.cmake" \
+    -DBUILD_TEMPLATE_PATH="@SCRIPT_DIR@/build/@BUILD_TEMPLATE@.cmake" \
+    -DPROJECT_CONFIG_PATH="@PROJECT_CONFIG_PATH@" \
+    -DPROJECT_DIR="@PROJECT_DIR@" \
+    -DCMAKE_OUTPUT_DIR="@CMAKE_OUTPUT_DIR@" \
+    -DCMAKE_BUILD_TYPE="@BUILD_TYPE@" \
+    -DBUILD_TYPE="@BUILD_TYPE@" \
+    -DGENERATOR_TYPE="@GENERATOR_TYPE@" \
+    -DIDE_TYPE="@IDE_TYPE@" \
+    -DSCRIPT_DIR="@SCRIPT_DIR@" \
+    -DWRAPPER_BIN="@WRAPPER_BIN@" \
+    -DUSE_ASSERT="@USE_ASSERT@" \
+    -DUSE_PCH="@USE_PCH@" \
+    -DUSE_UNITY_BUILD="@USE_UNITY_BUILD@" \
+    -DASM_SRC_OUTPUT="@ASM_SRC_OUTPUT@" \
+    -DNO_LINK="@NO_LINK@" \
+    -DOPT_LEVEL="@OPT_LEVEL@" \
+    -DSKIP_META_BUILD=1 \
+    2>&1 | tee -a "${LOG_FILE}"
+
+# store exit status
+test "${PIPESTATUS[0]}" -eq 0
+STATUS=${?}
+
+# fix dependency
+"@CMAKE_OUTPUT_DIR@"/helper.sh fix_dependency
+
+if [[ ${STATUS} != "0" ]]; then
+    TOTAL_ERROR_COUNT=$(( TOTAL_ERROR_COUNT + 1 ))
+    return
+fi
+
+#################################
+# build
+#################################
+NOTE_COUNT=0
+WARNING_COUNT=0
+ERROR_COUNT=0
+
+# run clean for rebuild
+if [[ "@REBUILD@" == "ON" ]]; then
+    cmake \
+        --build "@CMAKE_OUTPUT_DIR@" \
+        --target clean_all
+fi
+
+cmake \
+    --build "@CMAKE_OUTPUT_DIR@" \
+    --target pre_build
+
+# skip on dry-run
+if [[ "@DRY_RUN@" != "ON" ]]; then
+
+    FILTER_FILE_LIST=$( "@CMAKE_OUTPUT_DIR@"/helper.sh filter_file_list __file_list__ )
+
+    # check if filter file exist but does not match
+    if [[ -s __file_list__ && "${FILTER_FILE_LIST}" == "" ]]; then
+        echo
+        echo "no match found. SKIP"
+        echo
+
+        return
+    fi
+
+    # shellcheck disable=SC2086
+    cmake \
+        --build "@CMAKE_OUTPUT_DIR@" \
+        -- -j ${JOBS} -d keeprsp -k 0 \
+        ${FILTER_FILE_LIST} \
+        2>&1 | tee -a "${LOG_FILE}"
+
+    # store exit status
+    test "${PIPESTATUS[0]}" -eq 0
+    STATUS=${?}
+
+    # count warning/error
+    NOTE_COUNT=$( grep -i "warning:" "${LOG_FILE}" | sed "s/^.*\/\([A-Za-z0-9_ ]*\.[CcHh]\)/\1/" | grep "NOTE: " | sort -u | wc -l )
+    WARNING_COUNT=$( grep -i "warning:" "${LOG_FILE}" | sed "s/^.*\/\([A-Za-z0-9_ ]*\.[CcHh]\)/\1/" | grep -v "NOTE: " | sort -u | wc -l )
+    ERROR_COUNT=$( grep -i "error:" "${LOG_FILE}" | sed "s/^.*\/\([A-Za-z0-9_ ]*\.[CcHh]\)/\1/" | sort -u | wc -l )
+
+    if [[ ${STATUS} != "0" ]]; then
+        ERROR_COUNT=$(( ERROR_COUNT + 1 ))
+    fi
+
+    # collect note/error/warning messages
+    TOTAL_NOTE_COUNT=$(( TOTAL_NOTE_COUNT + NOTE_COUNT ))
+    TOTAL_ERROR_COUNT=$(( TOTAL_ERROR_COUNT + ERROR_COUNT ))
+    TOTAL_WARNING_COUNT=$(( TOTAL_WARNING_COUNT + WARNING_COUNT ))
+
+    # print warning/error for each step if more than 1 exist
+    echo
+    echo "${ERROR_COUNT} Error(s), ${WARNING_COUNT} Warning(s), ${NOTE_COUNT} Note(s) in ${CMAKE_OUTPUT_NAME}"
+    echo
+fi
+
+# test compile before continuing
+if [[ ${STATUS} == "0" ]]; then
+    if [[ -f "@CMAKE_OUTPUT_DIR@/test_compile.c" ]]; then
+        cd "@CMAKE_OUTPUT_DIR@"
+
+        ./cpp_cmd.sh test_compile.c > /dev/null 2>&1
+        STATUS=${?}
+
+        cd "@OUTPUT_DIR@"
+
+    fi
+fi

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Usage:
+#   - wrapper script for running auto-link32 for gcc
+
+CMD_SH=link_cmd.sh
+
+####################
+# 0. create cmd file
+####################
+echo "${@}" > ${CMD_SH}
+chmod +x ${CMD_SH}
+
+####################
+# 1. link (pass 1)
+####################
+# link #1
+./${CMD_SH}
+STATUS=${?}
+
+if [[ ${STATUS} != "0" ]]; then
+    exit ${STATUS}
+fi
+
+# load .a files from .map
+grep -o "LOAD .*\.a" "@PROJECT_MAP_FILE@" | \
+    sed 's/\\/\//g' | \
+    cut -c 1-5 --complement | \
+    sort | \
+    uniq \
+    > lib_list.txt
+
+# dump lib info
+while IFS= read -r lib_file || [ -n "${lib_file}" ]
+do
+    LIB_NAME="${lib_file##*/}"
+    DUMP_FILE="@CMAKE_CURRENT_BINARY_DIR@/dump/${LIB_NAME}.dump"
+
+    @OBJDUMP@ @OBJDUMP_FLAGS@ \
+        "${lib_file}" \
+        > "${DUMP_FILE}"
+
+    DUMP_CONTENT=$(<"${DUMP_FILE}")
+
+    # detect su data
+    SU_FILE="@CMAKE_CURRENT_BINARY_DIR@/dump/${LIB_NAME}.su"
+
+    if [[ ${DUMP_CONTENT} =~ __lib_info__\.obj && \
+          ${DUMP_CONTENT} =~ \.su_data ]]; then
+
+        @CMAKE_AR@ -x "${lib_file}" __lib_info__.obj
+
+        @OBJCOPY@ \
+            -I elf32-little \
+            -O binary \
+            -j .su_data \
+            __lib_info__.obj \
+            "${SU_FILE}"
+    else
+        rm -f "${SU_FILE}"
+    fi
+done < lib_list.txt
+
+####################
+# 2. update .ld script
+####################
+"@WRAPPER_BIN@" ld_update --cmd-path "${CMD_SH}" --dump-path "dump"
+STATUS=${?}
+
+if [[ ${STATUS} != "0" ]]; then
+    exit ${STATUS}
+fi
+
+####################
+# 3. link (pass 2)
+####################
+./${CMD_SH}
+STATUS=${?}
+
+if [[ ${STATUS} != "0" ]]; then
+    exit ${STATUS}
+fi
