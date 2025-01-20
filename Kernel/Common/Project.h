@@ -48,7 +48,7 @@
 #elif(_SCALER_TYPE == _RL6978_SERIES)
 #include <Project/RL6978_Project_Default.h>
 #endif
-
+ 
 #include <Project/RL6829_Project_Default.h>
 #include <Project/RL6952_Project_Default.h>
 #include <Project/RL6978_Project_Default.h>

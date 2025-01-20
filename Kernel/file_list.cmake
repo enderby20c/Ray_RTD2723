@@ -583,6 +583,7 @@ if(NOT BUILD_TEMPLATE STREQUAL "build_SCPU_boot" )
         set(FILE_LIST
             ${FILE_LIST}
 
+            "./Scaler/RL6952_Series_Scaler/Code/RL6952_Series_ALPU.c"
             "./Scaler/RL6952_Series_Scaler/Code/RL6952_Series_Audio.c"
             "./Scaler/RL6952_Series_Scaler/Code/RL6952_Series_Color.c"
             "./Scaler/RL6952_Series_Scaler/Code/RL6952_Series_ColorCRC.c"
